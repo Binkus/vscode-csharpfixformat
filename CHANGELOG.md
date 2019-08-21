@@ -1,3 +1,5 @@
+* v0.0.84
+  * Fix backslashes in @-strings.
 * v0.0.83
   * Fix enums detection.
 * v0.0.82

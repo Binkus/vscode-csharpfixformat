@@ -39,10 +39,13 @@ const validCodePatterns: RegExp[] = [
     /(\/\*(?:.|\n)*?\*\/)/gm,
     /(\/\/.*?$)/gm,
     /('(?:[^'\\]|\\.)*')/gm,
+    /(@?"(?:[^"]|\\.|"")*")/gm,
     /("(?:[^"\\]|\\.|"")*")/gm
 ];
 
 const validCodePatternString = validCodePatterns.map<string>(r => r.source).join('|');
+
+let replaceBackSlashes = false;
 
 const replaceCode = (source: string, condition: RegExp, cb: Func<string, string>): string => {
     const flags = condition.flags.replace(/[gm]/g, '');
@@ -50,6 +53,11 @@ const replaceCode = (source: string, condition: RegExp, cb: Func<string, string>
     return source.replace(regexp, (s: string, ...args: string[]) => {
         if (s[0] === '"' || s[0] === '\'' || (s[0] === '/' && (s[1] === '/' || s[1] === '*'))) {
             return s;
+        }
+        if (s[0] === '@' && s[1] === '"') {
+            return replaceBackSlashes ? s
+                .replace(/\\\\/gm, '__vscode_double_backslash__')
+                .replace(/\\/gm, '__vscode_backslash__') : s;
         }
         return cb(s, ...args.slice(validCodePatterns.length + 1));
     });
@@ -93,8 +101,13 @@ export const process = (content: string, options: IFormatConfig): Promise<string
                 // fix mixed line-endings issue.
                 content = content.replace(/\r\n/g, '\n');
 
+                // replace backslashes only in first replaceCode.
+                replaceBackSlashes = true;
+
                 // masking preprocessor directives for beautifier - no builtin support for them.
                 content = replaceCode(content, /#(?:define|undef|if|else|elif|endif|pragma|warning|error)/gm, s => `// __vscode_pp__${s}`);
+
+                replaceBackSlashes = false;
 
                 // masking region / endregion directives.
                 content = replaceCode(content, /#(region|endregion)/gm, s => `// __vscode_pp_region__${s}`);
@@ -106,6 +119,11 @@ export const process = (content: string, options: IFormatConfig): Promise<string
                 content = replaceCode(content, /(enum[ \t][^\{]*?\{[^\}]*?\})[ \t]*;/gm, (s, s1) => s1);
 
                 content = beautify(content, beautifyOptions);
+
+                // restore backslashes in @-strings.
+                content = content
+                    .replace(/__vscode_double_backslash__/gm, '\\\\')
+                    .replace(/__vscode_backslash__/gm, '\\');
 
                 // restore masked preprocessor directives.
                 content = content.replace(/([ \t]*)\/\/ __vscode_pp__/gm, (s, s1) => {
